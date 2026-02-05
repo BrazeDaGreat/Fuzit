@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import { hasApiKey } from "./services/config.js";
 import { getGitCommands, type AiResponse } from "./services/ai.js";
 import { isGitRepo } from "./services/git.js";
@@ -120,12 +120,9 @@ function Done({
 }) {
   const allSuccess = results.every((r) => r.success);
 
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      onContinue();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+  useInput(() => {
+    onContinue();
+  });
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -153,7 +150,7 @@ function Done({
         </Box>
       ))}
       <Box marginTop={1}>
-        <Text dimColor>Returning to input...</Text>
+        <Text dimColor>Press any key to continue...</Text>
       </Box>
     </Box>
   );

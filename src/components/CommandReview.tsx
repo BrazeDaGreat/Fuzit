@@ -62,10 +62,10 @@ export default function CommandReview({
   };
 
   useInput((input, key) => {
-    if (mode === "editing" && key.escape) {
+    if (key.escape) {
       setMode("menu");
     }
-    if (mode === "editing" && commands.length > 1) {
+    if (commands.length > 1) {
       if (key.upArrow && editIndex > 0) {
         setEditIndex(editIndex - 1);
         setEditValue(commands[editIndex - 1]!);
@@ -75,7 +75,7 @@ export default function CommandReview({
         setEditValue(commands[editIndex + 1]!);
       }
     }
-  });
+  }, { isActive: mode === "editing" });
 
   return (
     <Box flexDirection="column" padding={1}>
