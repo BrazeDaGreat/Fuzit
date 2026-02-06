@@ -12,6 +12,7 @@ export default function Input({ onSubmit }: InputProps) {
   const handleSubmit = (input: string) => {
     const trimmed = input.trim();
     if (!trimmed) return;
+    setValue("");
     onSubmit(trimmed);
   };
 
