@@ -80,36 +80,50 @@ export default function CommandReview({
   return (
     <Box flexDirection="column" padding={1}>
       <Text bold color="cyan">
-        Proposed commands:
+        🔍 Proposed commands:
       </Text>
-      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+      <Box flexDirection="column" marginTop={1} marginLeft={2} borderLeft borderColor="cyan" paddingLeft={2}>
         {commands.map((cmd, i) => (
-          <Box key={i}>
-            <Text dimColor>{i + 1}. </Text>
+          <Box key={i} marginTop={i > 0 ? 1 : 0}>
+            <Box width={3}>
+              <Text color="magenta" bold>
+                {i + 1}.{" "}
+              </Text>
+            </Box>
             {mode === "editing" && editIndex === i ? (
-              <TextInput
-                value={editValue}
-                onChange={setEditValue}
-                onSubmit={handleEditSubmit}
-              />
+              <Box>
+                <TextInput
+                  value={editValue}
+                  onChange={setEditValue}
+                  onSubmit={handleEditSubmit}
+                />
+              </Box>
             ) : (
-              <Text color="yellow">{cmd}</Text>
+              <Box>
+                <Text color="yellow" bold>
+                  {cmd}
+                </Text>
+              </Box>
             )}
           </Box>
         ))}
       </Box>
-      <Box marginTop={1}>
-        <Text dimColor>{explanation}</Text>
+
+      <Box marginTop={2} borderTop borderColor="gray" paddingTop={1}>
+        <Text dimColor>
+          💬 {explanation}
+        </Text>
       </Box>
+
       {mode === "editing" ? (
         <Box marginTop={1}>
           <Text dimColor>
-            Edit command #{editIndex + 1} (Enter to save, Esc to cancel
+            ✏️  Edit command #{editIndex + 1} (Enter to save, Esc to cancel
             {commands.length > 1 ? ", ↑/↓ to switch" : ""})
           </Text>
         </Box>
       ) : (
-        <Box marginTop={1} flexDirection="column">
+        <Box marginTop={2} flexDirection="column">
           <SelectInput items={menuItems} onSelect={handleMenuSelect} />
         </Box>
       )}

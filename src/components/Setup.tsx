@@ -33,37 +33,71 @@ export default function Setup({ onComplete }: SetupProps) {
 
   return (
     <Box flexDirection="column" padding={1}>
-      <Text bold color="cyan">
-        Welcome to Fuzit!
-      </Text>
-      <Text dimColor>
-        A natural language git command helper powered by AI.
-      </Text>
-      <Box marginTop={1}>
-        <Text>Enter your Groq API key: </Text>
-        {validating ? (
-          <Text>
-            <Spinner type="dots" />{" "}
-            <Text dimColor>Validating...</Text>
-          </Text>
-        ) : (
-          <TextInput
-            value={key}
-            onChange={setKey}
-            onSubmit={handleSubmit}
-            mask="*"
-          />
-        )}
-      </Box>
-      {error && (
+      <Box borderStyle="round" borderColor="magenta" paddingX={2} paddingY={1} marginBottom={2} flexDirection="column">
+        <Text bold color="magenta">
+          ✨ Welcome to Fuzit!
+        </Text>
         <Box marginTop={1}>
-          <Text color="red">{error}</Text>
+          <Text dimColor>
+            A natural language git command helper powered by AI.
+          </Text>
+        </Box>
+      </Box>
+
+      <Box
+        borderStyle="round"
+        borderColor="cyan"
+        paddingX={2}
+        paddingY={1}
+        marginBottom={2}
+        flexDirection="column"
+      >
+        <Box>
+          <Text bold color="cyan">
+            🔑 API Setup
+          </Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text>Enter your Groq API key: </Text>
+          {validating ? (
+            <Box marginLeft={1}>
+              <Text color="cyan">
+                <Spinner type="dots" />
+              </Text>
+              <Box marginLeft={1}>
+                <Text dimColor>
+                  Validating...
+                </Text>
+              </Box>
+            </Box>
+          ) : (
+            <TextInput
+              value={key}
+              onChange={setKey}
+              onSubmit={handleSubmit}
+              mask="*"
+            />
+          )}
+        </Box>
+      </Box>
+
+      {error && (
+        <Box marginBottom={1} paddingX={1} borderLeft borderColor="red">
+          <Text color="red">❌ {error}</Text>
         </Box>
       )}
-      <Box marginTop={1}>
-        <Text dimColor>
-          Get your free API key at https://console.groq.com
-        </Text>
+
+      <Box flexDirection="column" marginTop={1}>
+        <Box>
+          <Text dimColor>
+            💡 Get your free API key at:
+          </Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor color="blue">
+            https://console.groq.com
+          </Text>
+        </Box>
       </Box>
     </Box>
   );

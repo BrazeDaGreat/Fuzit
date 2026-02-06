@@ -37,35 +37,44 @@ export default function Execution({ commands, onComplete }: ExecutionProps) {
   return (
     <Box flexDirection="column" padding={1}>
       <Text bold color="cyan">
-        Executing commands:
+        ⚙️  Executing commands:
       </Text>
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1} borderLeft borderColor="cyan" paddingLeft={2}>
         {results.map((result, i) => (
-          <Box key={i} flexDirection="column" marginBottom={1}>
+          <Box key={i} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
             <Box>
-              <Text color={result.success ? "green" : "red"}>
-                {result.success ? "✓" : "✗"}{" "}
+              <Text
+                color={result.success ? "greenBright" : "redBright"}
+                bold
+              >
+                {result.success ? "✓" : "✗"}
               </Text>
-              <Text color="yellow">{result.command}</Text>
+              <Box marginLeft={1}>
+                <Text color="yellow" bold>
+                  {result.command}
+                </Text>
+              </Box>
             </Box>
             {result.output && (
-              <Box marginLeft={2}>
-                <Text>{result.output}</Text>
+              <Box marginLeft={2} marginTop={1}>
+                <Text dimColor>{result.output}</Text>
               </Box>
             )}
             {result.error && (
-              <Box marginLeft={2}>
+              <Box marginLeft={2} marginTop={1}>
                 <Text color="red">{result.error}</Text>
               </Box>
             )}
           </Box>
         ))}
         {running && currentIndex < commands.length && (
-          <Box>
+          <Box marginTop={2}>
             <Text color="cyan">
               <Spinner type="dots" />
             </Text>
-            <Text> Running: {commands[currentIndex]}</Text>
+            <Box marginLeft={1}>
+              <Text bold>{commands[currentIndex]}</Text>
+            </Box>
           </Box>
         )}
       </Box>
