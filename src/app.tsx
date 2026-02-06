@@ -84,7 +84,7 @@ export default function App() {
               <Text color="red">{error}</Text>
             </Box>
           )}
-          <Input onSubmit={handleInput} />
+          <Input key="input" onSubmit={handleInput} />
         </>
       )}
 
@@ -119,10 +119,16 @@ function Done({
   onContinue: () => void;
 }) {
   const allSuccess = results.every((r) => r.success);
+  const [isActive, setIsActive] = useState(true);
 
-  useInput(() => {
-    onContinue();
-  });
+  const handleInput = useCallback(() => {
+    setIsActive(false);
+    setTimeout(() => {
+      onContinue();
+    }, 0);
+  }, [onContinue]);
+
+  useInput(handleInput, { isActive });
 
   return (
     <Box flexDirection="column" padding={1}>
