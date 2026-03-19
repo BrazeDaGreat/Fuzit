@@ -33,41 +33,65 @@ export default function App({ quickPrompt }: AppProps) {
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [results, setResults] = useState<CommandResult[]>([]);
   const [error, setError] = useState("");
+  const [isQuickPromptMode, setIsQuickPromptMode] = useState(false);
+  const [hasProcessedQuickPrompt, setHasProcessedQuickPrompt] = useState(false);
 
   React.useEffect(() => {
-    if (quickPrompt && state === "input") {
+    if (quickPrompt && state === "input" && !hasProcessedQuickPrompt) {
+      setIsQuickPromptMode(true);
+      setHasProcessedQuickPrompt(true);
       handleInput(quickPrompt);
     }
-  }, [quickPrompt, state]);
+  }, [quickPrompt, state, hasProcessedQuickPrompt]);
+
+  // Auto-exit when execution completes in quick prompt mode
+  React.useEffect(() => {
+    if (isQuickPromptMode && state === "done") {
+      // Give a brief moment to display results, then exit
+      const timer = setTimeout(() => {
+        process.exit(results.every((r) => r.success) ? 0 : 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isQuickPromptMode, state, results]);
 
   const handleSetupComplete = useCallback(() => {
     setState("input");
   }, []);
 
-  const handleInput = useCallback(async (value: string) => {
-    if (!isGitRepo()) {
-      setError(
-        "Not inside a git repository. Please navigate to a git repo and try again.",
-      );
-      return;
-    }
-    setRequest(value);
-    setError("");
-    setState("thinking");
+  const handleInput = useCallback(
+    async (value: string) => {
+      if (!isGitRepo()) {
+        setError(
+          "Not inside a git repository. Please navigate to a git repo and try again.",
+        );
+        return;
+      }
+      setRequest(value);
+      setError("");
+      setState("thinking");
 
-    try {
-      const response: AiResponse = await getGitCommands(value);
-      setReviewData({
-        commands: response.commands,
-        explanation: response.explanation,
-      });
-      setState("review");
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setError(`AI error: ${message}`);
-      setState("input");
-    }
-  }, []);
+      try {
+        const response: AiResponse = await getGitCommands(value);
+        setReviewData({
+          commands: response.commands,
+          explanation: response.explanation,
+        });
+
+        // In quick prompt mode, auto-execute without review
+        if (isQuickPromptMode) {
+          setState("executing");
+        } else {
+          setState("review");
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setError(`AI error: ${message}`);
+        setState("input");
+      }
+    },
+    [isQuickPromptMode],
+  );
 
   const handleRun = useCallback((commands: string[]) => {
     setReviewData((prev) => (prev ? { ...prev, commands } : null));

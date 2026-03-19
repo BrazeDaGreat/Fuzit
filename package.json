@@ -1,11 +1,23 @@
 {
-  "name": "fuzit",
-  "version": "1.0.0",
-  "description": "Git command helper TUI - natural language to git commands via AI",
+  "name": "@uziraze/fuzit",
+  "version": "1.0.0-beta.1",
+  "description": "AI-Generate GIT commands, for people who cannot memorize them.",
   "type": "module",
+  "author": "uziraze",
+  "homepage": "https://github.com/BrazeDaGreat/Fuzit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrazeDaGreat/Fuzit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BrazeDaGreat/Fuzit/issues"
+  },
   "bin": {
     "fuzit": "./dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

@@ -1,0 +1,19 @@
+# Source files (compiled output in dist/ is what gets published)
+src/
+
+# TypeScript config
+tsconfig.json
+
+# Dev artifacts
+*.tar
+*.tgz
+
+# Git
+.git/
+.gitignore
+
+# Claude AI config
+.claude/
+
+# Lock file (not needed by consumers)
+package-lock.json
