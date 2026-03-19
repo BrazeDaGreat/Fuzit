@@ -1,6 +1,6 @@
 {
   "name": "@uziraze/fuzit",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "AI-Generate GIT commands, for people who cannot memorize them.",
   "type": "module",
   "author": "uziraze",
@@ -23,7 +23,13 @@
     "dev": "tsc --watch",
     "start": "node dist/cli.js"
   },
-  "keywords": ["git", "ai", "tui", "cli", "groq"],
+  "keywords": [
+    "git",
+    "ai",
+    "tui",
+    "cli",
+    "groq"
+  ],
   "license": "MIT",
   "dependencies": {
     "conf": "^13.0.1",
