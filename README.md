@@ -1,5 +1,7 @@
 # Fuzit
 
+[![npm](https://img.shields.io/npm/v/%40uziraze%2Ffuzit?label=npm&color=red)](https://www.npmjs.com/package/@uziraze/fuzit)
+
 AI-powered Git command helper for people who can't memorize git syntax. Describe what you want to do in plain English — Fuzit figures out the commands.
 
 ## Demo
