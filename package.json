@@ -1,6 +1,6 @@
 {
   "name": "@uziraze/fuzit",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0",
   "description": "AI-Generate GIT commands, for people who cannot memorize them.",
   "type": "module",
   "author": "uziraze",
