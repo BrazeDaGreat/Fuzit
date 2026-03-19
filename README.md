@@ -65,12 +65,40 @@ Skips the review step and executes immediately. Useful for scripting or when you
 fuzit -n stage all changes and commit with message "fix: button alignment"
 ```
 
+### Command history
+
+```bash
+fuzit --history
+```
+
+Browse previously executed commands. Select any entry to load its commands back into the review screen, where you can run or edit them again.
+
+### Model picker
+
+```bash
+fuzit --model
+```
+
+Switch the AI model used to generate commands. Fuzit supports the following Groq models:
+
+| Model | Description |
+|---|---|
+| `llama-3.3-70b-versatile` | Balanced performance and speed (default) |
+| `openai/gpt-oss-20b` | OpenAI open-source 20B model |
+| `openai/gpt-oss-120b` | OpenAI open-source 120B model, most capable |
+| `llama-3.1-8b-instant` | Fastest responses, smallest model |
+
+The selected model is saved and used for all future requests until changed.
+You can change these models via `src/config/models.ts`
+
 ## Features
 
-- Natural language to git commands via Llama 3.3 70B (Groq)
+- Natural language to git commands via Groq AI
 - Shows proposed commands with an explanation before running anything
 - Edit any command before execution
 - Reads your current git context (branch, status, recent commits, remotes) for accurate suggestions
+- Command history — re-run past commands without retyping
+- Switchable AI models — choose between speed and capability
 - Cross-platform (Windows, macOS, Linux)
 
 ## How It Works
