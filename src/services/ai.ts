@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import { getApiKey } from "./config.js";
+import { getApiKey, getModel } from "./config.js";
 import { getGitContext, type GitContext } from "./git.js";
 
 export interface AiResponse {
@@ -44,7 +44,7 @@ export async function getGitCommands(request: string): Promise<AiResponse> {
   const context = getGitContext();
 
   const completion = await client.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: getModel(),
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: buildUserPrompt(request, context) },

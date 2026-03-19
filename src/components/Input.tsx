@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
 import TextInput from "ink-text-input";
+import { getModelLabel } from "../config/models.js";
 
 interface InputProps {
   onSubmit: (value: string) => void;
+  currentModel: string;
 }
 
-export default function Input({ onSubmit }: InputProps) {
+export default function Input({ onSubmit, currentModel }: InputProps) {
   const [value, setValue] = useState("");
 
   const handleSubmit = (input: string) => {
@@ -48,7 +50,29 @@ export default function Input({ onSubmit }: InputProps) {
           <Text dimColor bold color="cyan">
             fuzit -n "your command"
           </Text>
-          <Text dimColor> to skip the input prompt</Text>
+          <Text dimColor> to skip the review step</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>
+            🤖 Model:{" "}
+          </Text>
+          <Text color="yellow" dimColor>
+            {getModelLabel(currentModel)}
+          </Text>
+          <Text dimColor>
+            {"  •  "}
+          </Text>
+          <Text dimColor bold color="cyan">
+            fuzit --model
+          </Text>
+          <Text dimColor> to change</Text>
+          <Text dimColor>
+            {"  •  "}
+          </Text>
+          <Text dimColor bold color="cyan">
+            fuzit --history
+          </Text>
+          <Text dimColor> to browse past commands</Text>
         </Box>
         <Box marginTop={1}>
           <Text dimColor>Press </Text>

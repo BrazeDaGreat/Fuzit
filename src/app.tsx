@@ -1,14 +1,19 @@
 import React, { useState, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import { hasApiKey } from "./services/config.js";
+import { hasApiKey, getModel, setModel, getHistory, addHistory } from "./services/config.js";
 import { getGitCommands, type AiResponse } from "./services/ai.js";
 import { isGitRepo } from "./services/git.js";
 import type { CommandResult } from "./utils/execute.js";
+import type { HistoryEntry } from "./services/config.js";
 import Setup from "./components/Setup.js";
 import Input from "./components/Input.js";
 import Thinking from "./components/Thinking.js";
 import CommandReview from "./components/CommandReview.js";
 import Execution from "./components/Execution.js";
+import History from "./components/History.js";
+import ModelPicker from "./components/ModelPicker.js";
+
+export type StartMode = "input" | "history" | "model";
 
 type AppState =
   | "setup"
@@ -16,25 +21,37 @@ type AppState =
   | "thinking"
   | "review"
   | "executing"
-  | "done";
+  | "done"
+  | "history"
+  | "modelPicker";
 
 interface ReviewData {
   commands: string[];
   explanation: string;
+  request: string;
 }
 
 interface AppProps {
   quickPrompt?: string | null;
+  startMode?: StartMode;
 }
 
-export default function App({ quickPrompt }: AppProps) {
-  const [state, setState] = useState<AppState>(hasApiKey() ? "input" : "setup");
+function getInitialState(startMode: StartMode): AppState {
+  if (!hasApiKey()) return "setup";
+  if (startMode === "history") return "history";
+  if (startMode === "model") return "modelPicker";
+  return "input";
+}
+
+export default function App({ quickPrompt, startMode = "input" }: AppProps) {
+  const [state, setState] = useState<AppState>(() => getInitialState(startMode));
   const [request, setRequest] = useState("");
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [results, setResults] = useState<CommandResult[]>([]);
   const [error, setError] = useState("");
   const [isQuickPromptMode, setIsQuickPromptMode] = useState(false);
   const [hasProcessedQuickPrompt, setHasProcessedQuickPrompt] = useState(false);
+  const [currentModel, setCurrentModel] = useState(getModel());
 
   React.useEffect(() => {
     if (quickPrompt && state === "input" && !hasProcessedQuickPrompt) {
@@ -47,7 +64,6 @@ export default function App({ quickPrompt }: AppProps) {
   // Auto-exit when execution completes in quick prompt mode
   React.useEffect(() => {
     if (isQuickPromptMode && state === "done") {
-      // Give a brief moment to display results, then exit
       const timer = setTimeout(() => {
         process.exit(results.every((r) => r.success) ? 0 : 1);
       }, 1000);
@@ -56,8 +72,10 @@ export default function App({ quickPrompt }: AppProps) {
   }, [isQuickPromptMode, state, results]);
 
   const handleSetupComplete = useCallback(() => {
-    setState("input");
-  }, []);
+    if (startMode === "history") setState("history");
+    else if (startMode === "model") setState("modelPicker");
+    else setState("input");
+  }, [startMode]);
 
   const handleInput = useCallback(
     async (value: string) => {
@@ -76,9 +94,9 @@ export default function App({ quickPrompt }: AppProps) {
         setReviewData({
           commands: response.commands,
           explanation: response.explanation,
+          request: value,
         });
 
-        // In quick prompt mode, auto-execute without review
         if (isQuickPromptMode) {
           setState("executing");
         } else {
@@ -107,14 +125,49 @@ export default function App({ quickPrompt }: AppProps) {
     (executionResults: CommandResult[]) => {
       setResults(executionResults);
       setState("done");
+      // Save to history if all commands succeeded
+      if (executionResults.every((r) => r.success) && reviewData) {
+        addHistory({
+          request: reviewData.request,
+          commands: reviewData.commands,
+          explanation: reviewData.explanation,
+          timestamp: Date.now(),
+        });
+      }
     },
-    [],
+    [reviewData],
   );
 
   const handleContinue = useCallback(() => {
     setReviewData(null);
     setResults([]);
     setError("");
+    setState("input");
+  }, []);
+
+  // History handlers
+  const handleHistorySelect = useCallback((entry: HistoryEntry) => {
+    setReviewData({
+      commands: entry.commands,
+      explanation: entry.explanation,
+      request: entry.request,
+    });
+    setRequest(entry.request);
+    setState("review");
+  }, []);
+
+  const handleHistoryBack = useCallback(() => {
+    setState("input");
+  }, []);
+
+  // Model picker handlers
+  const handleModelSelect = useCallback((modelId: string) => {
+    setModel(modelId);
+    setCurrentModel(modelId);
+    setState("input");
+  }, []);
+
+  const handleModelBack = useCallback(() => {
     setState("input");
   }, []);
 
@@ -129,7 +182,7 @@ export default function App({ quickPrompt }: AppProps) {
               <Text color="red">{error}</Text>
             </Box>
           )}
-          <Input key="input" onSubmit={handleInput} />
+          <Input key="input" onSubmit={handleInput} currentModel={currentModel} />
         </>
       )}
 
@@ -153,6 +206,22 @@ export default function App({ quickPrompt }: AppProps) {
 
       {state === "done" && (
         <Done results={results} onContinue={handleContinue} />
+      )}
+
+      {state === "history" && (
+        <History
+          history={getHistory()}
+          onSelect={handleHistorySelect}
+          onBack={handleHistoryBack}
+        />
+      )}
+
+      {state === "modelPicker" && (
+        <ModelPicker
+          currentModel={currentModel}
+          onSelect={handleModelSelect}
+          onBack={handleModelBack}
+        />
       )}
     </Box>
   );
