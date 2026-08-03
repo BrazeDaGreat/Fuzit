@@ -1,298 +1,536 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { hasApiKey, getModel, setModel, getHistory, addHistory } from "./services/config.js";
-import { getGitCommands, type AiResponse } from "./services/ai.js";
-import { isGitRepo } from "./services/git.js";
-import type { CommandResult } from "./utils/execute.js";
-import type { HistoryEntry } from "./services/config.js";
+import { color, layout } from "./theme/theme.js";
+import { PANELS, type PanelId } from "./panels.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import { usePanelHotkeys } from "./hooks/usePanelHotkeys.js";
+
+import HeaderBar, { type Phase } from "./components/layout/HeaderBar.js";
+import Sidebar from "./components/layout/Sidebar.js";
+import KeyBar from "./components/layout/KeyBar.js";
+import Prompt from "./components/layout/Prompt.js";
+import Rule from "./components/ui/Rule.js";
+
+import ConsolePanel from "./components/panels/ConsolePanel.js";
+import ModelPanel from "./components/panels/ModelPanel.js";
+import HistoryPanel from "./components/panels/HistoryPanel.js";
+import SettingsPanel from "./components/panels/SettingsPanel.js";
+import HelpPanel from "./components/panels/HelpPanel.js";
 import Setup from "./components/Setup.js";
-import Input from "./components/Input.js";
-import Thinking from "./components/Thinking.js";
-import CommandReview from "./components/CommandReview.js";
-import Execution from "./components/Execution.js";
-import History from "./components/History.js";
-import ModelPicker from "./components/ModelPicker.js";
+import type { Turn } from "./components/Turn.js";
 
-export type StartMode = "input" | "history" | "model";
+import {
+  addHistory,
+  clearHistory,
+  getActiveModelId,
+  getActiveProvider,
+  getAllowGh,
+  getGuardDestructive,
+  getHistory,
+  getProviders,
+  isConfigured,
+  setActive,
+  setAllowGh,
+  setGuardDestructive,
+  type HistoryEntry,
+} from "./services/config.js";
+import { modelShort } from "./config/knownModels.js";
+import { planCommands, type PriorTurn } from "./services/ai.js";
+import { ghUsable } from "./services/tools.js";
+import { planUndo } from "./services/undo.js";
+import type { Provider } from "./services/providers.js";
+import {
+  diffRepoState,
+  readRepoState,
+  NO_REPO,
+  type RepoState,
+} from "./services/repo.js";
+import { executeCommand } from "./utils/execute.js";
 
-type AppState =
-  | "setup"
-  | "input"
-  | "thinking"
-  | "review"
-  | "executing"
-  | "done"
-  | "history"
-  | "modelPicker";
+export type StartMode = "console" | "model" | "history" | "settings";
 
-interface ReviewData {
-  commands: string[];
-  explanation: string;
-  request: string;
-}
+const START_PANEL: Record<StartMode, PanelId> = {
+  console: 1,
+  model: 2,
+  history: 3,
+  settings: 4,
+};
 
 interface AppProps {
-  quickPrompt?: string | null;
   startMode?: StartMode;
 }
 
-function getInitialState(startMode: StartMode): AppState {
-  if (!hasApiKey()) return "setup";
-  if (startMode === "history") return "history";
-  if (startMode === "model") return "modelPicker";
-  return "input";
-}
+const FLASH_MS = 2600;
+/** How many previous exchanges a follow-up carries. */
+const CONTEXT_TURNS = 3;
 
-export default function App({ quickPrompt, startMode = "input" }: AppProps) {
-  const [state, setState] = useState<AppState>(() => getInitialState(startMode));
-  const [request, setRequest] = useState("");
-  const [reviewData, setReviewData] = useState<ReviewData | null>(null);
-  const [results, setResults] = useState<CommandResult[]>([]);
-  const [error, setError] = useState("");
-  const [isQuickPromptMode, setIsQuickPromptMode] = useState(false);
-  const [hasProcessedQuickPrompt, setHasProcessedQuickPrompt] = useState(false);
-  const [currentModel, setCurrentModel] = useState(getModel());
+export default function App({ startMode = "console" }: AppProps) {
+  const size = useTerminalSize();
+  const [needsKey, setNeedsKey] = useState(!isConfigured());
+  const [rekeying, setRekeying] = useState(false);
 
-  React.useEffect(() => {
-    if (quickPrompt && state === "input" && !hasProcessedQuickPrompt) {
-      setIsQuickPromptMode(true);
-      setHasProcessedQuickPrompt(true);
-      handleInput(quickPrompt);
-    }
-  }, [quickPrompt, state, hasProcessedQuickPrompt]);
+  const [panel, setPanel] = useState<PanelId>(START_PANEL[startMode]);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [draft, setDraft] = useState("");
+  const [providers, setProviders] = useState<Provider[]>(() => getProviders());
+  const [activeProviderId, setActiveProviderId] = useState(
+    () => getActiveProvider()?.id ?? "",
+  );
+  const [model, setModelState] = useState(getActiveModelId());
+  const [guard, setGuard] = useState(getGuardDestructive());
+  const [allowGh, setAllowGhState] = useState(getAllowGh());
+  const [history, setHistory] = useState<HistoryEntry[]>(() => getHistory());
+  const [repo, setRepo] = useState<RepoState>(NO_REPO);
+  const [changed, setChanged] = useState<ReadonlySet<string>>(new Set());
+  const [notice, setNotice] = useState("");
+  /** True while the model panel has a sub-view open, so Escape backs out there. */
+  const [modelDepth, setModelDepth] = useState(false);
+  const nextId = useRef(1);
+  const flashTimer = useRef<NodeJS.Timeout>();
+  const noticeTimer = useRef<NodeJS.Timeout>();
 
-  // Auto-exit when execution completes in quick prompt mode
-  React.useEffect(() => {
-    if (isQuickPromptMode && state === "done") {
-      const timer = setTimeout(() => {
-        process.exit(results.every((r) => r.success) ? 0 : 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isQuickPromptMode, state, results]);
+  const provider = providers.find((p) => p.id === activeProviderId) ?? providers[0];
+  const current = turns[turns.length - 1];
+  const phase: Phase = !repo.isRepo
+    ? "blocked"
+    : current?.status === "planning"
+      ? "thinking"
+      : current?.status === "review"
+        ? "review"
+        : current?.status === "running"
+          ? "running"
+          : "ready";
 
-  const handleSetupComplete = useCallback(() => {
-    if (startMode === "history") setState("history");
-    else if (startMode === "model") setState("modelPicker");
-    else setState("input");
-  }, [startMode]);
+  const refreshRepo = useCallback(() => {
+    setRepo(readRepoState());
+  }, []);
 
-  const handleInput = useCallback(
+  useEffect(() => {
+    refreshRepo();
+  }, [refreshRepo]);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+  }, []);
+
+  const flash = useCallback((keys: string[]) => {
+    if (keys.length === 0) return;
+    setChanged(new Set(keys));
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setChanged(new Set()), FLASH_MS);
+  }, []);
+
+  const say = useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(""), 3000);
+  }, []);
+
+  const patchTurn = useCallback((id: number, patch: Partial<Turn>) => {
+    setTurns((list) =>
+      list.map((turn) => (turn.id === id ? { ...turn, ...patch } : turn)),
+    );
+  }, []);
+
+  const reloadProviders = useCallback(() => {
+    setProviders(getProviders());
+    setActiveProviderId(getActiveProvider()?.id ?? "");
+    setModelState(getActiveModelId());
+  }, []);
+
+  /** The last few exchanges, so a follow-up can refer back to them. */
+  const priorContext = useCallback((): PriorTurn[] => {
+    return turns
+      .filter((t) => t.commands.length > 0 && !t.isUndo)
+      .slice(-CONTEXT_TURNS)
+      .map((t) => {
+        const failed = t.results.find((r) => !r.success);
+        const outcome =
+          t.status === "done"
+            ? "ran successfully"
+            : t.status === "failed" && failed
+              ? `failed: ${failed.error ?? "unknown error"}`
+              : t.status === "cancelled"
+                ? "the user cancelled it"
+                : undefined;
+        return {
+          request: t.request,
+          commands: t.commands,
+          explanation: t.explanation,
+          outcome,
+        };
+      });
+  }, [turns]);
+
+  const submitRequest = useCallback(
     async (value: string) => {
-      if (!isGitRepo()) {
-        setError(
-          "Not inside a git repository. Please navigate to a git repo and try again.",
-        );
+      const request = value.trim();
+      if (!request) return;
+      if (!provider) return;
+
+      const before = readRepoState();
+      setRepo(before);
+
+      const id = nextId.current;
+      nextId.current += 1;
+
+      const prior = priorContext();
+
+      setTurns((list) => [
+        ...list,
+        {
+          id,
+          request,
+          commands: [],
+          explanation: "",
+          status: "planning",
+          results: [],
+          delta: [],
+          before,
+        },
+      ]);
+      setDraft("");
+
+      if (!before.isRepo) {
+        patchTurn(id, {
+          status: "failed",
+          error: "Not a git repository. Change into one and press ctrl+r.",
+        });
         return;
       }
-      setRequest(value);
-      setError("");
-      setState("thinking");
 
       try {
-        const response: AiResponse = await getGitCommands(value);
-        setReviewData({
-          commands: response.commands,
-          explanation: response.explanation,
-          request: value,
+        const plan = await planCommands({
+          provider,
+          model,
+          request,
+          repo: before,
+          prior,
+          allowGh: ghUsable(allowGh),
+          onUpdate: (partial) => {
+            patchTurn(id, {
+              commands: partial.commands,
+              explanation: partial.explanation,
+            });
+          },
         });
+        patchTurn(id, {
+          commands: plan.commands,
+          explanation: plan.explanation,
+          status: "review",
+        });
+      } catch (err) {
+        patchTurn(id, {
+          commands: [],
+          status: "failed",
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+    },
+    [patchTurn, provider, model, allowGh, priorContext],
+  );
 
-        if (isQuickPromptMode) {
-          setState("executing");
-        } else {
-          setState("review");
+  const runCommands = useCallback(
+    (commands: string[]) => {
+      if (!current) return;
+      const id = current.id;
+      const before = current.before ?? readRepoState();
+
+      patchTurn(id, { commands, status: "running", results: [] });
+
+      // Execution is synchronous per command; yield between each so the
+      // spinner and the finished rows actually paint.
+      const results: ReturnType<typeof executeCommand>[] = [];
+
+      const finish = (ok: boolean) => {
+        const after = readRepoState();
+        const delta = diffRepoState(before, after);
+        setRepo(after);
+        flash(delta.map((row) => row.key));
+        patchTurn(id, {
+          results: [...results],
+          status: ok ? "done" : "failed",
+          delta,
+          after,
+        });
+        if (ok) {
+          addHistory({
+            request: current.request,
+            commands,
+            explanation: current.explanation,
+            timestamp: Date.now(),
+          });
+          setHistory(getHistory());
         }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        setError(`AI error: ${message}`);
-        setState("input");
-      }
+      };
+
+      const step = (i: number) => {
+        if (i >= commands.length) return finish(true);
+        const result = executeCommand(commands[i]!);
+        results.push(result);
+        patchTurn(id, { results: [...results] });
+        if (!result.success) return finish(false);
+        setTimeout(() => step(i + 1), 0);
+      };
+
+      setTimeout(() => step(0), 0);
     },
-    [isQuickPromptMode],
+    [current, patchTurn, flash],
   );
 
-  const handleRun = useCallback((commands: string[]) => {
-    setReviewData((prev) => (prev ? { ...prev, commands } : null));
-    setState("executing");
+  const cancelReview = useCallback(() => {
+    if (current) patchTurn(current.id, { status: "cancelled" });
+  }, [current, patchTurn]);
+
+  /** Finds the newest completed turn that changed something reversible. */
+  const undoLastTurn = useCallback(() => {
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const turn = turns[i]!;
+      if (turn.isUndo) continue;
+      if (turn.status !== "done" || !turn.before || !turn.after) continue;
+
+      const plan = planUndo(turn.before, turn.after);
+      if (!plan) {
+        say("That turn did not change anything Fuzit can put back.");
+        return;
+      }
+
+      const id = nextId.current;
+      nextId.current += 1;
+      setTurns((list) => [
+        ...list,
+        {
+          id,
+          request: `undo: ${turn.request}`,
+          commands: plan.commands,
+          explanation: plan.explanation,
+          status: "review",
+          results: [],
+          delta: [],
+          before: readRepoState(),
+          isUndo: true,
+          note: plan.warning,
+        },
+      ]);
+      setPanel(1);
+      return;
+    }
+    say("Nothing to undo yet.");
+  }, [turns, say]);
+
+  const replayHistory = useCallback((entry: HistoryEntry) => {
+    const id = nextId.current;
+    nextId.current += 1;
+    setTurns((list) => [
+      ...list,
+      {
+        id,
+        request: entry.request,
+        commands: entry.commands,
+        explanation: entry.explanation,
+        status: "review",
+        results: [],
+        delta: [],
+        before: readRepoState(),
+      },
+    ]);
+    setPanel(1);
   }, []);
 
-  const handleCancel = useCallback(() => {
-    setReviewData(null);
-    setState("input");
-  }, []);
+  const promptFocused =
+    panel === 1 &&
+    !needsKey &&
+    !rekeying &&
+    phase !== "review" &&
+    phase !== "running" &&
+    phase !== "thinking";
 
-  const handleExecutionComplete = useCallback(
-    (executionResults: CommandResult[]) => {
-      setResults(executionResults);
-      setState("done");
-      // Save to history if all commands succeeded
-      if (executionResults.every((r) => r.success) && reviewData) {
-        addHistory({
-          request: reviewData.request,
-          commands: reviewData.commands,
-          explanation: reviewData.explanation,
-          timestamp: Date.now(),
-        });
+  usePanelHotkeys({
+    active: panel,
+    onSwitch: setPanel,
+    allowBareDigits: !promptFocused,
+    isActive: !needsKey && !rekeying,
+  });
+
+  useInput(
+    (input, key) => {
+      if (key.ctrl && input === "r") {
+        refreshRepo();
+        say("Repo re-read.");
+      } else if (key.ctrl && input === "l") {
+        setTurns([]);
+      } else if (key.ctrl && input === "z") {
+        undoLastTurn();
+      } else if (key.escape && panel !== 1 && !(panel === 2 && modelDepth)) {
+        setPanel(1);
       }
     },
-    [reviewData],
+    { isActive: !needsKey && !rekeying },
   );
 
-  const handleContinue = useCallback(() => {
-    setReviewData(null);
-    setResults([]);
-    setError("");
-    setState("input");
-  }, []);
+  if (needsKey || rekeying) {
+    return (
+      <Setup
+        width={size.width}
+        provider={provider}
+        onComplete={() => {
+          reloadProviders();
+          setNeedsKey(false);
+          setRekeying(false);
+          refreshRepo();
+        }}
+        onCancel={rekeying ? () => setRekeying(false) : undefined}
+      />
+    );
+  }
 
-  // History handlers
-  const handleHistorySelect = useCallback((entry: HistoryEntry) => {
-    setReviewData({
-      commands: entry.commands,
-      explanation: entry.explanation,
-      request: entry.request,
-    });
-    setRequest(entry.request);
-    setState("review");
-  }, []);
+  const bodyWidth = size.showSidebar
+    ? size.width - layout.sidebarWidth - 2
+    : size.width;
+  const bodyHeight = size.bodyHeight;
 
-  const handleHistoryBack = useCallback(() => {
-    setState("input");
-  }, []);
+  const canUndo = turns.some(
+    (t) => !t.isUndo && t.status === "done" && t.before && t.after,
+  );
 
-  // Model picker handlers
-  const handleModelSelect = useCallback((modelId: string) => {
-    setModel(modelId);
-    setCurrentModel(modelId);
-    setState("input");
-  }, []);
-
-  const handleModelBack = useCallback(() => {
-    setState("input");
-  }, []);
+  const hints =
+    panel === 1
+      ? phase === "review"
+        ? ["enter runs", "^C quit"]
+        : canUndo
+          ? ["^Z undo", "alt+1‥5 panels", "^C quit"]
+          : ["alt+1‥5 panels", "^C quit"]
+      : ["esc console", "alt+1‥5 panels", "^C quit"];
 
   return (
-    <Box flexDirection="column">
-      {state === "setup" && <Setup onComplete={handleSetupComplete} />}
+    <Box flexDirection="column" width={size.width}>
+      <HeaderBar
+        width={size.width}
+        repo={repo}
+        model={modelShort(model)}
+        phase={phase}
+      />
+      <Rule width={size.width} />
 
-      {state === "input" && (
-        <>
-          {error && (
-            <Box padding={1}>
-              <Text color="red">{error}</Text>
-            </Box>
+      <Box height={bodyHeight} overflow="hidden">
+        <Box flexDirection="column" width={bodyWidth} overflow="hidden">
+          {panel === 1 && (
+            <ConsolePanel
+              turns={turns}
+              width={bodyWidth}
+              height={bodyHeight}
+              isActive
+              guardDestructive={guard}
+              onRun={runCommands}
+              onCancel={cancelReview}
+            />
           )}
-          <Input key="input" onSubmit={handleInput} currentModel={currentModel} />
-        </>
-      )}
+          {panel === 2 && (
+            <ModelPanel
+              width={bodyWidth}
+              height={bodyHeight}
+              isActive
+              providers={providers}
+              activeProviderId={activeProviderId}
+              activeModelId={model}
+              onChanged={reloadProviders}
+              onPick={(providerId, modelId) => {
+                setActive(providerId, modelId);
+                reloadProviders();
+                setPanel(1);
+                say(`Now using ${modelId}.`);
+              }}
+              onSay={say}
+              onDepthChange={setModelDepth}
+            />
+          )}
+          {panel === 3 && (
+            <HistoryPanel
+              width={bodyWidth}
+              height={bodyHeight}
+              isActive
+              history={history}
+              onSelect={replayHistory}
+            />
+          )}
+          {panel === 4 && (
+            <SettingsPanel
+              width={bodyWidth}
+              height={bodyHeight}
+              isActive
+              provider={provider}
+              model={model}
+              guardDestructive={guard}
+              allowGh={allowGh}
+              notice={notice}
+              onToggleGuard={() => {
+                const next = !guard;
+                setGuardDestructive(next);
+                setGuard(next);
+                say(next ? "Safety guard on." : "Safety guard off.");
+              }}
+              onToggleGh={() => {
+                const next = !allowGh;
+                setAllowGh(next);
+                setAllowGhState(next);
+                say(next ? "GitHub CLI enabled." : "GitHub CLI disabled.");
+              }}
+              onClearHistory={() => {
+                clearHistory();
+                setHistory([]);
+                say("History cleared.");
+              }}
+              onChangeApiKey={() => setRekeying(true)}
+              onOpenModelPanel={() => setPanel(2)}
+            />
+          )}
+          {panel === 5 && <HelpPanel width={bodyWidth} height={bodyHeight} />}
+        </Box>
 
-      {state === "thinking" && <Thinking request={request} />}
-
-      {state === "review" && reviewData && (
-        <CommandReview
-          commands={reviewData.commands}
-          explanation={reviewData.explanation}
-          onRun={handleRun}
-          onCancel={handleCancel}
-        />
-      )}
-
-      {state === "executing" && reviewData && (
-        <Execution
-          commands={reviewData.commands}
-          onComplete={handleExecutionComplete}
-        />
-      )}
-
-      {state === "done" && (
-        <Done results={results} onContinue={handleContinue} />
-      )}
-
-      {state === "history" && (
-        <History
-          history={getHistory()}
-          onSelect={handleHistorySelect}
-          onBack={handleHistoryBack}
-        />
-      )}
-
-      {state === "modelPicker" && (
-        <ModelPicker
-          currentModel={currentModel}
-          onSelect={handleModelSelect}
-          onBack={handleModelBack}
-        />
-      )}
-    </Box>
-  );
-}
-
-function Done({
-  results,
-  onContinue,
-}: {
-  results: CommandResult[];
-  onContinue: () => void;
-}) {
-  const allSuccess = results.every((r) => r.success);
-  const [isActive, setIsActive] = useState(true);
-
-  const handleInput = useCallback(() => {
-    setIsActive(false);
-    setTimeout(() => {
-      onContinue();
-    }, 0);
-  }, [onContinue]);
-
-  useInput(handleInput, { isActive });
-
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box
-        borderStyle="round"
-        borderColor={allSuccess ? "green" : "red"}
-        paddingX={2}
-        paddingY={1}
-        marginBottom={2}
-        flexDirection="column"
-      >
-        <Text bold color={allSuccess ? "greenBright" : "redBright"}>
-          {allSuccess
-            ? "✨  All commands completed successfully!"
-            : "⚠️  Some commands failed."}
-        </Text>
+        {size.showSidebar && (
+          <>
+            <Box width={2} />
+            <Sidebar
+              width={layout.sidebarWidth}
+              height={bodyHeight}
+              repo={repo}
+              changed={changed}
+            />
+          </>
+        )}
       </Box>
 
-      <Box flexDirection="column" borderLeft borderColor="cyan" paddingLeft={2}>
-        {results.map((result, i) => (
-          <Box key={i} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
-            <Box>
-              <Text color={result.success ? "greenBright" : "redBright"} bold>
-                {result.success ? "✓" : "✗"}
-              </Text>
-              <Box marginLeft={1}>
-                <Text color="yellow" bold>
-                  {result.command}
-                </Text>
-              </Box>
-            </Box>
-            {result.output && (
-              <Box marginLeft={2} marginTop={1}>
-                <Text dimColor>{result.output}</Text>
-              </Box>
-            )}
-            {result.error && (
-              <Box marginLeft={2} marginTop={1}>
-                <Text color="red">{result.error}</Text>
-              </Box>
-            )}
-          </Box>
-        ))}
-      </Box>
-
-      <Box marginTop={2} borderTop borderColor="gray" paddingTop={1}>
-        <Text dimColor>Press any key to continue...</Text>
-      </Box>
+      <Rule width={size.width} />
+      <Prompt
+        width={size.width}
+        value={draft}
+        onChange={setDraft}
+        onSubmit={submitRequest}
+        focused={promptFocused}
+        placeholder={
+          turns.length > 0
+            ? "describe another change, or correct the last one"
+            : "describe a change to this repo"
+        }
+        idleText={
+          phase === "review"
+            ? "reviewing the commands above"
+            : phase === "thinking"
+              ? "writing the plan"
+              : phase === "running"
+                ? "running"
+                : `${PANELS.find((p) => p.id === panel)?.name} — esc returns to the console`
+        }
+      />
+      <KeyBar width={size.width} active={panel} hints={hints} />
+      {notice && panel !== 4 && (
+        <Box width={size.width}>
+          <Text color={color.ok}>{notice}</Text>
+        </Box>
+      )}
     </Box>
   );
 }

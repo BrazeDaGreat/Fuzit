@@ -1,103 +1,142 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
-import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
-import { validateApiKey } from "../services/ai.js";
-import { setApiKey } from "../services/config.js";
+import { color, glyph } from "../theme/theme.js";
+import Rule from "./ui/Rule.js";
+import TextField from "./ui/TextField.js";
+import { upsertProvider } from "../services/config.js";
+import { fetchModels, type Provider } from "../services/providers.js";
 
 interface SetupProps {
+  width: number;
+  provider: Provider | undefined;
   onComplete: () => void;
+  /** Set when replacing an existing key rather than on first run. */
+  onCancel?: () => void;
 }
 
-export default function Setup({ onComplete }: SetupProps) {
+export default function Setup({
+  width,
+  provider,
+  onComplete,
+  onCancel,
+}: SetupProps) {
   const [key, setKey] = useState("");
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState("");
 
+  const label = provider?.label ?? "your provider";
+
   const handleSubmit = async (value: string) => {
     const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      onCancel?.();
+      return;
+    }
+    if (!provider) {
+      setError("No provider configured.");
+      return;
+    }
 
     setValidating(true);
     setError("");
 
-    const valid = await validateApiKey(trimmed);
-    if (valid) {
-      setApiKey(trimmed);
+    const candidate = { ...provider, apiKey: trimmed };
+    try {
+      // The model list is the cheapest proof the key works, and it fills the
+      // picker at the same time.
+      const models = await fetchModels(candidate);
+      upsertProvider({ ...candidate, cached: models, cachedAt: Date.now() });
       onComplete();
-    } else {
-      setError("Invalid API key. Please try again.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `${label} rejected that key: ${err.message}`
+          : "That key did not work.",
+      );
+      setKey("");
       setValidating(false);
     }
   };
 
   return (
-    <Box flexDirection="column" padding={1}>
-      <Box borderStyle="round" borderColor="magenta" paddingX={2} paddingY={1} marginBottom={2} flexDirection="column">
-        <Text bold color="magenta">
-          ✨ Welcome to Fuzit!
+    <Box flexDirection="column" width={width} paddingY={1}>
+      <Box>
+        <Text color={color.brand} bold>
+          {glyph.mark}FUZIT
         </Text>
-        <Box marginTop={1}>
-          <Text dimColor>
-            A natural language git command helper powered by AI.
-          </Text>
-        </Box>
+        <Text color={color.rule}>{`  ${glyph.sep}  `}</Text>
+        <Text color={color.muted}>plain English in, git commands out</Text>
       </Box>
 
-      <Box
-        borderStyle="round"
-        borderColor="cyan"
-        paddingX={2}
-        paddingY={1}
-        marginBottom={2}
-        flexDirection="column"
-      >
-        <Box>
-          <Text bold color="cyan">
-            🔑 API Setup
-          </Text>
-        </Box>
-        <Box marginTop={1}>
-          <Text>Enter your Groq API key: </Text>
-          {validating ? (
-            <Box marginLeft={1}>
-              <Text color="cyan">
-                <Spinner type="dots" />
-              </Text>
-              <Box marginLeft={1}>
-                <Text dimColor>
-                  Validating...
-                </Text>
-              </Box>
-            </Box>
-          ) : (
-            <TextInput
-              value={key}
-              onChange={setKey}
-              onSubmit={handleSubmit}
-              mask="*"
-            />
-          )}
-        </Box>
+      <Box marginTop={1}>
+        <Rule width={width} label="connect" />
       </Box>
 
-      {error && (
-        <Box marginBottom={1} paddingX={1} borderLeft borderColor="red">
-          <Text color="red">❌ {error}</Text>
+      <Box marginTop={1} width={Math.min(width, 68)}>
+        <Text color={color.text} wrap="wrap">
+          Fuzit needs an API key for {label} to translate your requests. The key
+          is stored on this machine only.
+        </Text>
+      </Box>
+
+      {provider?.builtin && (
+        <Box marginTop={1}>
+          <Text color={color.muted}>Groq is free. Get a key at </Text>
+          <Text color={color.info}>https://console.groq.com/keys</Text>
         </Box>
       )}
 
-      <Box flexDirection="column" marginTop={1}>
-        <Box>
-          <Text dimColor>
-            💡 Get your free API key at:
+      <Box
+        marginTop={1}
+        width={Math.min(width, 68)}
+        borderStyle="round"
+        borderColor={error ? color.bad : color.brand}
+        paddingX={1}
+      >
+        <Text color={color.focus} bold>
+          {glyph.caret}{" "}
+        </Text>
+        {validating ? (
+          <Box>
+            <Text color={color.info}>
+              <Spinner type="dots" />
+            </Text>
+            <Text color={color.muted}> checking the key with {label}</Text>
+          </Box>
+        ) : (
+          <Box flexGrow={1}>
+            <TextField
+              value={key}
+              onChange={setKey}
+              onSubmit={handleSubmit}
+              placeholder="paste your key and press enter"
+              mask="•"
+            />
+          </Box>
+        )}
+      </Box>
+
+      {error && (
+        <Box marginTop={1} width={Math.min(width, 68)}>
+          <Text color={color.bad} wrap="wrap">
+            {glyph.bad} {error}
           </Text>
         </Box>
+      )}
+
+      {onCancel && !validating && (
         <Box marginTop={1}>
-          <Text dimColor color="blue">
-            https://console.groq.com
+          <Text color={color.rule}>
+            Press enter on an empty prompt to keep the current key.
           </Text>
         </Box>
+      )}
+
+      <Box marginTop={1}>
+        <Text color={color.rule} wrap="wrap">
+          Other OpenAI-compatible providers can be added from the model panel.
+        </Text>
       </Box>
     </Box>
   );
