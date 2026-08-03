@@ -5,6 +5,8 @@ import Rule from "../ui/Rule.js";
 import { configPath, getHistory, maskedKey } from "../../services/config.js";
 import { modelLabel } from "../../config/knownModels.js";
 import { detectTools } from "../../services/tools.js";
+import { detectShell } from "../../services/shell.js";
+import type { Scope } from "../../utils/validate.js";
 import type { Provider } from "../../services/providers.js";
 
 interface SettingsPanelProps {
@@ -15,6 +17,8 @@ interface SettingsPanelProps {
   model: string;
   guardDestructive: boolean;
   allowGh: boolean;
+  scope: Scope;
+  onToggleScope: () => void;
   onToggleGuard: () => void;
   onToggleGh: () => void;
   onClearHistory: () => void;
@@ -39,6 +43,8 @@ export default function SettingsPanel({
   model,
   guardDestructive,
   allowGh,
+  scope,
+  onToggleScope,
   onToggleGuard,
   onToggleGh,
   onClearHistory,
@@ -48,6 +54,7 @@ export default function SettingsPanel({
 }: SettingsPanelProps) {
   const [cursor, setCursor] = useState(0);
   const tools = detectTools();
+  const shell = detectShell();
 
   const ghValue = !allowGh
     ? "off"
@@ -56,6 +63,16 @@ export default function SettingsPanel({
       : `unavailable`;
 
   const rows: Row[] = [
+    {
+      id: "scope",
+      label: "What can run",
+      value: scope === "shell" ? `any ${shell.name} command` : "git and gh only",
+      hint:
+        scope === "shell"
+          ? "Requests can reach the whole terminal, not just version control"
+          : "Restricts every request to git and gh, with no chaining",
+      tone: scope === "shell" ? color.focus : color.ok,
+    },
     {
       id: "guard",
       label: "Safety guard",
@@ -99,7 +116,8 @@ export default function SettingsPanel({
       } else if (key.return || input === " ") {
         const row = rows[cursor];
         if (!row) return;
-        if (row.id === "guard") onToggleGuard();
+        if (row.id === "scope") onToggleScope();
+        else if (row.id === "guard") onToggleGuard();
         else if (row.id === "gh") onToggleGh();
         else if (row.id === "model") onOpenModelPanel();
         else if (row.id === "key") onChangeApiKey();

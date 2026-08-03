@@ -88,31 +88,37 @@ function CommandLine({
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={color.rule}>
-          {"  "}
-          {isLast ? glyph.branchEnd : glyph.branchMid}{" "}
-        </Text>
-        {running ? (
-          <Text color={color.info}>
-            <Spinner type="dots" />
+        {/* Fixed-width gutter: without flexShrink 0, a long command squeezes
+            the tree glyph and marker into each other. */}
+        <Box flexShrink={0}>
+          <Text color={color.rule}>
+            {"  "}
+            {isLast ? glyph.branchEnd : glyph.branchMid}{" "}
           </Text>
-        ) : (
-          <Text color={tone} bold={marker !== glyph.pending}>
-            {marker}
-          </Text>
-        )}
-        <Text> </Text>
-        {editing && editSlot ? (
-          editSlot
-        ) : (
-          <Text
-            color={selected ? color.focus : color.text}
-            bold={selected}
-            wrap="truncate-end"
-          >
-            {command}
-          </Text>
-        )}
+          {running ? (
+            <Text color={color.info}>
+              <Spinner type="dots" />
+            </Text>
+          ) : (
+            <Text color={tone} bold={marker !== glyph.pending}>
+              {marker}
+            </Text>
+          )}
+          <Text> </Text>
+        </Box>
+        <Box flexGrow={1} overflow="hidden">
+          {editing && editSlot ? (
+            editSlot
+          ) : (
+            <Text
+              color={selected ? color.focus : color.text}
+              bold={selected}
+              wrap="truncate-end"
+            >
+              {command}
+            </Text>
+          )}
+        </Box>
       </Box>
 
       {risk && !result && (

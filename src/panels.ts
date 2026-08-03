@@ -11,7 +11,7 @@ export const PANELS: PanelDef[] = [
   { id: 1, name: "console", blurb: "Ask for a change and review the commands" },
   { id: 2, name: "model", blurb: "Choose the model and manage providers" },
   { id: 3, name: "history", blurb: "Replay something you have run before" },
-  { id: 4, name: "settings", blurb: "API key, safety guard, stored history" },
+  { id: 4, name: "settings", blurb: "What can run, safety guard, API key, history" },
   { id: 5, name: "help", blurb: "Keys and what Fuzit does" },
 ];
 

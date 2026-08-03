@@ -4,6 +4,7 @@ import { color, glyph } from "../../theme/theme.js";
 import TextField from "../ui/TextField.js";
 import TurnView, { type Turn } from "../Turn.js";
 import { anyRisky, riskOf } from "../../utils/danger.js";
+import type { Scope } from "../../utils/validate.js";
 
 type ReviewMode = "actions" | "picking" | "editing" | "confirming";
 type Action = "run" | "edit" | "cancel";
@@ -16,15 +17,23 @@ interface ConsolePanelProps {
   height: number;
   isActive: boolean;
   guardDestructive: boolean;
+  scope: Scope;
   onRun: (commands: string[]) => void;
   onCancel: () => void;
 }
 
-const EXAMPLES = [
-  "undo my last commit but keep the changes",
-  "stash everything and switch to main",
-  "squash the last three commits into one",
-];
+const EXAMPLES: Record<Scope, string[]> = {
+  shell: [
+    "undo my last commit but keep the changes",
+    "find every file over 10 MB in here",
+    "kill whatever is holding port 3000",
+  ],
+  git: [
+    "undo my last commit but keep the changes",
+    "stash everything and switch to main",
+    "squash the last three commits into one",
+  ],
+};
 
 function estimateRows(turn: Turn, width: number): number {
   let rows = 2; // request + trailing margin
@@ -53,12 +62,16 @@ function visibleTurns(turns: Turn[], width: number, budget: number): Turn[] {
   return out;
 }
 
-function EmptyConsole({ width }: { width: number }) {
+function EmptyConsole({ width, scope }: { width: number; scope: Scope }) {
   return (
     <Box flexDirection="column" paddingLeft={1}>
-      <Text color={color.text}>Ask for a change to this repo in plain English.</Text>
+      <Text color={color.text}>
+        {scope === "shell"
+          ? "Say what you want to happen here, in plain English."
+          : "Ask for a change to this repo, in plain English."}
+      </Text>
       <Box flexDirection="column" marginTop={1}>
-        {EXAMPLES.map((example) => (
+        {EXAMPLES[scope].map((example) => (
           <Box key={example}>
             <Text color={color.brandDim}>{glyph.caret} </Text>
             <Text color={color.muted} wrap="truncate-end">
@@ -69,8 +82,8 @@ function EmptyConsole({ width }: { width: number }) {
       </Box>
       <Box marginTop={1} width={Math.min(width - 2, 62)}>
         <Text color={color.rule} wrap="wrap">
-          Commands are shown for review before anything runs, and Fuzit reports
-          what changed in the repo afterwards.
+          Commands are shown for review before anything runs, and anything that
+          discards work has to be confirmed.
         </Text>
       </Box>
     </Box>
@@ -83,6 +96,7 @@ export default function ConsolePanel({
   height,
   isActive,
   guardDestructive,
+  scope,
   onRun,
   onCancel,
 }: ConsolePanelProps) {
@@ -178,7 +192,7 @@ export default function ConsolePanel({
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
       <Box flexDirection="column" flexGrow={1}>
         {turns.length === 0 ? (
-          <EmptyConsole width={width} />
+          <EmptyConsole width={width} scope={scope} />
         ) : (
           shown.map((turn) => {
             const live = turn.id === current?.id;

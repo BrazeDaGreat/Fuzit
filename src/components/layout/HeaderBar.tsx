@@ -26,9 +26,17 @@ interface HeaderBarProps {
   repo: RepoState;
   model: string;
   phase: Phase;
+  /** Current working directory, already shortened for display. */
+  cwd: string;
 }
 
-export default function HeaderBar({ width, repo, model, phase }: HeaderBarProps) {
+export default function HeaderBar({
+  width,
+  repo,
+  model,
+  phase,
+  cwd,
+}: HeaderBarProps) {
   const dirty = repo.modified + repo.untracked + repo.conflicts > 0;
 
   const right = (
@@ -47,10 +55,10 @@ export default function HeaderBar({ width, repo, model, phase }: HeaderBarProps)
         <Text color={color.brand} bold>
           {glyph.mark}FUZIT
         </Text>
-        {repo.isRepo ? (
+        <Text color={color.rule}>{`  ${glyph.sep}  `}</Text>
+        <Text color={color.text}>{cwd}</Text>
+        {repo.isRepo && (
           <>
-            <Text color={color.rule}>{`  ${glyph.sep}  `}</Text>
-            <Text color={color.text}>{repo.name}</Text>
             <Text color={color.rule}>{`  ${glyph.sep}  `}</Text>
             <Text color={dirty ? color.focus : color.ok}>
               {dirty ? glyph.dot : glyph.ring}
@@ -58,11 +66,6 @@ export default function HeaderBar({ width, repo, model, phase }: HeaderBarProps)
             <Text color={color.text}> {repo.branch}</Text>
             {repo.ahead > 0 && <Text color={color.info}> ↑{repo.ahead}</Text>}
             {repo.behind > 0 && <Text color={color.info}> ↓{repo.behind}</Text>}
-          </>
-        ) : (
-          <>
-            <Text color={color.rule}>{`  ${glyph.sep}  `}</Text>
-            <Text color={color.bad}>no repository</Text>
           </>
         )}
       </Box>

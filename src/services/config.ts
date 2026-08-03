@@ -1,4 +1,5 @@
 import Conf from "conf";
+import type { Scope } from "../utils/validate.js";
 import {
   defaultProviders,
   GROQ_PROVIDER_ID,
@@ -19,6 +20,8 @@ interface FuzitConfig {
   history: HistoryEntry[];
   guardDestructive: boolean;
   allowGh: boolean;
+  /** "git" keeps the old git/gh allowlist; "shell" allows any terminal command. */
+  commandScope: Scope;
   providers: Provider[];
   activeProviderId: string;
   activeModelId: string;
@@ -35,6 +38,7 @@ const config = new Conf<FuzitConfig>({
     history: { type: "array", default: [] },
     guardDestructive: { type: "boolean", default: true },
     allowGh: { type: "boolean", default: true },
+    commandScope: { type: "string", default: "shell" },
     providers: { type: "array", default: [] },
     activeProviderId: { type: "string", default: GROQ_PROVIDER_ID },
     activeModelId: { type: "string", default: DEFAULT_MODEL_ID },
@@ -148,6 +152,14 @@ export function getAllowGh(): boolean {
 
 export function setAllowGh(value: boolean): void {
   config.set("allowGh", value);
+}
+
+export function getCommandScope(): Scope {
+  return (config.get("commandScope") as Scope) ?? "shell";
+}
+
+export function setCommandScope(scope: Scope): void {
+  config.set("commandScope", scope);
 }
 
 export function configPath(): string {

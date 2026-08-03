@@ -8,6 +8,7 @@ import {
   getActiveModelId,
   getActiveProvider,
   getAllowGh,
+  getCommandScope,
   getGuardDestructive,
   isConfigured,
 } from "./services/config.js";
@@ -69,6 +70,7 @@ if (quickPrompt) {
       model: getActiveModelId(),
       guardDestructive: getGuardDestructive(),
       allowGh: getAllowGh(),
+      scope: getCommandScope(),
     }),
   );
 } else {

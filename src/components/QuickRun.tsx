@@ -6,7 +6,9 @@ import { planCommands } from "../services/ai.js";
 import { addHistory } from "../services/config.js";
 import { diffRepoState, readRepoState } from "../services/repo.js";
 import { ghUsable } from "../services/tools.js";
-import { executeCommand, type CommandResult } from "../utils/execute.js";
+import { runCommand } from "../services/session.js";
+import type { CommandResult } from "../utils/execute.js";
+import type { Scope } from "../utils/validate.js";
 import { anyRisky, riskOf } from "../utils/danger.js";
 import type { Provider } from "../services/providers.js";
 
@@ -17,6 +19,7 @@ interface QuickRunProps {
   model: string;
   guardDestructive: boolean;
   allowGh: boolean;
+  scope: Scope;
 }
 
 /**
@@ -30,6 +33,7 @@ export default function QuickRun({
   model,
   guardDestructive,
   allowGh,
+  scope,
 }: QuickRunProps) {
   const { exit } = useApp();
   const [turn, setTurn] = useState<Turn>({
@@ -52,7 +56,7 @@ export default function QuickRun({
 
     (async () => {
       const before = readRepoState();
-      if (!before.isRepo) {
+      if (scope === "git" && !before.isRepo) {
         setTurn((t) => ({ ...t, status: "failed", error: "Not a git repository." }));
         stop(1);
         return;
@@ -65,6 +69,7 @@ export default function QuickRun({
           model,
           request,
           repo: before,
+          scope,
           allowGh: ghUsable(allowGh),
           onUpdate: (partial) => {
             if (cancelled) return;
@@ -109,7 +114,7 @@ export default function QuickRun({
 
       const results: CommandResult[] = [];
       for (const command of plan.commands) {
-        const result = executeCommand(command);
+        const result = runCommand(command);
         results.push(result);
         if (cancelled) return;
         setTurn((t) => ({ ...t, results: [...results] }));

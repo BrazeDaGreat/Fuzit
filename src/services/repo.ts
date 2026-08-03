@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { executeCommand } from "../utils/execute.js";
 
@@ -161,15 +162,49 @@ export function diffRepoState(before: RepoState, after: RepoState): DeltaRow[] {
   return rows;
 }
 
-/** Context blob handed to the model alongside the user's request. */
+/** Up to `limit` entries of the current directory, for shell requests. */
+function listDirectory(limit = 40): string {
+  try {
+    const entries = fs
+      .readdirSync(process.cwd(), { withFileTypes: true })
+      .filter((e) => !e.name.startsWith("."))
+      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+      .sort();
+
+    if (entries.length === 0) return "(empty)";
+    return entries.length > limit
+      ? `${entries.slice(0, limit).join("  ")}  … and ${entries.length - limit} more`
+      : entries.join("  ");
+  } catch {
+    return "(unreadable)";
+  }
+}
+
+/**
+ * Context blob handed to the model alongside the user's request.
+ *
+ * The directory listing matters as much as the git state now that requests can
+ * be about files rather than commits — "delete the old log files" needs to know
+ * what is actually there.
+ */
 export function describeForModel(state: RepoState): string {
+  const lines = [
+    `- Working directory: ${process.cwd()}`,
+    `- Contents: ${listDirectory()}`,
+  ];
+
+  if (!state.isRepo) {
+    lines.push("- Git: this directory is not a git repository");
+    return lines.join("\n");
+  }
+
   const status = executeCommand("git status --short");
   const remotes = executeCommand("git remote -v");
   const tracking = state.upstream
     ? `${state.upstream} (ahead ${state.ahead}, behind ${state.behind})`
     : "none";
 
-  return [
+  lines.push(
     `- Branch: ${state.branch}${state.detached ? " (detached HEAD)" : ""}`,
     `- Tracking: ${tracking}`,
     `- Status:\n${status.success && status.output ? status.output : "(clean)"}`,
@@ -178,5 +213,7 @@ export function describeForModel(state: RepoState): string {
     }`,
     `- Stashes: ${state.stashes}`,
     `- Remotes:\n${remotes.success && remotes.output ? remotes.output : "(none)"}`,
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }

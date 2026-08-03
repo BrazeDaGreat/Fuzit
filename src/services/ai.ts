@@ -4,8 +4,9 @@ import {
   type Provider,
 } from "./providers.js";
 import { describeForModel, type RepoState } from "./repo.js";
+import { detectShell } from "./shell.js";
 import { extractPlan, type PartialPlan } from "../utils/partialPlan.js";
-import { validateCommands } from "../utils/validate.js";
+import { validateCommands, type Scope } from "../utils/validate.js";
 
 export interface AiResponse {
   commands: string[];
@@ -21,31 +22,16 @@ export interface PriorTurn {
   outcome?: string;
 }
 
-const BASE_RULES = `Rules:
-- Return commands in the order they should be executed
+const SHARED_RULES = `- Return commands in the order they should be executed
 - Be precise and safe - prefer explicit flags over defaults
 - If the request is ambiguous, pick the most common interpretation
-- Never return destructive commands without the user explicitly asking (e.g., force push, hard reset)
-- One command per array entry. Never chain with &&, ||, ; or pipes - they are rejected
-- You will receive the current git context (branch, tracking, status, recent log, stashes, remotes) to help you
-- IMPORTANT: Always use double quotes (") instead of single quotes (') for command arguments to ensure cross-platform compatibility (especially Windows PowerShell)`;
-
-const GIT_ONLY = `You are a git command translator. The user will describe what they want to do with git in natural language, and you will return the exact commands to execute.
-
-Only return git commands (commands that start with "git"). The GitHub CLI is
-not available, so if the request needs it - opening a pull request, listing
-issues - do the closest thing possible with git alone and say so in the
-explanation.`;
-
-const GIT_AND_GH = `You are a git and GitHub command translator. The user will describe what they want in natural language, and you will return the exact commands to execute.
-
-Every command must start with "git" or "gh". The authenticated GitHub CLI is
-available, so use "gh" for anything that touches GitHub itself - pull requests,
-issues, releases, repository settings - and "git" for everything local.`;
+- Never return destructive commands unless the user explicitly asked for one
+- Prefer non-interactive flags; nothing can answer a prompt once a command is running
+- Do not use sudo or elevation unless the user asked for it`;
 
 const FORMAT = `The explanation is shown directly under the commands in a narrow terminal panel.
 Write it as one sentence, lower case, no trailing period, describing what the
-commands do to this repo. Do not restate the commands.
+commands do. Do not restate the commands.
 
 You MUST respond with valid JSON in this exact format:
 {
@@ -55,22 +41,58 @@ You MUST respond with valid JSON in this exact format:
 
 Do not include any text outside the JSON object.`;
 
-function systemPrompt(allowGh: boolean): string {
-  return `${allowGh ? GIT_AND_GH : GIT_ONLY}\n\n${BASE_RULES}\n\n${FORMAT}`;
+function gitPrompt(allowGh: boolean): string {
+  const intro = allowGh
+    ? `You are a git and GitHub command translator. Every command must start with "git" or "gh". The authenticated GitHub CLI is available, so use "gh" for anything that touches GitHub itself - pull requests, issues, releases - and "git" for everything local.`
+    : `You are a git command translator. Only return git commands (commands that start with "git"). The GitHub CLI is not available, so if the request needs it - opening a pull request, listing issues - do the closest thing possible with git alone and say so in the explanation.`;
+
+  return `${intro}
+
+Rules:
+${SHARED_RULES}
+- One command per array entry. Never chain with &&, ||, ; or pipes - they are rejected
+- IMPORTANT: Always use double quotes (") instead of single quotes (') for command arguments to ensure cross-platform compatibility
+
+${FORMAT}`;
+}
+
+function shellPrompt(allowGh: boolean): string {
+  const shell = detectShell();
+
+  return `You are a terminal command translator. The user describes what they want in natural language and you return the exact commands to run.
+
+The commands will be executed by ${shell.name} on ${shell.platform}, in the
+user's current working directory. Everything you return must be valid
+${shell.name} syntax - do not return bash-only syntax for PowerShell, or the
+reverse.
+
+Rules:
+${SHARED_RULES}
+- Use relative paths inside the working directory unless the user names another
+- Prefer one command per array entry; chain within an entry only when the steps genuinely belong together
+- ${allowGh ? 'The authenticated GitHub CLI is available - use "gh" for pull requests, issues and releases' : "The GitHub CLI is not available; use git alone for version control work"}
+- Quote arguments containing spaces
+${shell.family === "powershell" ? "- PowerShell aliases like ls, cat and rm exist, but prefer the real cmdlet name when the flags differ" : ""}
+
+${FORMAT}`;
 }
 
 /**
  * Prior turns are replayed as real assistant messages so a follow-up like
- * "no, the remote branch" has something to correct.
+ * "no, the other directory" has something to correct.
  */
 function buildMessages(
   request: string,
   repo: RepoState,
   prior: PriorTurn[],
+  scope: Scope,
   allowGh: boolean,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(allowGh) },
+    {
+      role: "system",
+      content: scope === "shell" ? shellPrompt(allowGh) : gitPrompt(allowGh),
+    },
   ];
 
   for (const turn of prior) {
@@ -89,7 +111,7 @@ function buildMessages(
 
   messages.push({
     role: "user",
-    content: `Current git context:\n${describeForModel(repo)}\n\nUser request: ${request}`,
+    content: `Current context:\n${describeForModel(repo)}\n\nUser request: ${request}`,
   });
 
   return messages;
@@ -101,6 +123,7 @@ export interface PlanOptions {
   request: string;
   repo: RepoState;
   prior?: PriorTurn[];
+  scope: Scope;
   allowGh: boolean;
   /** Called as commands and explanation arrive. */
   onUpdate?: (partial: PartialPlan) => void;
@@ -113,6 +136,7 @@ export async function planCommands({
   request,
   repo,
   prior = [],
+  scope,
   allowGh,
   onUpdate,
   signal,
@@ -121,7 +145,7 @@ export async function planCommands({
     throw new Error(`${provider.label} has no API key. Add one in settings.`);
   }
 
-  const messages = buildMessages(request, repo, prior, allowGh);
+  const messages = buildMessages(request, repo, prior, scope, allowGh);
 
   let text = "";
   let lastCommandCount = -1;
@@ -167,7 +191,7 @@ export async function planCommands({
     throw new Error("The model found no commands for that request.");
   }
 
-  const problem = validateCommands(commands, allowGh);
+  const problem = validateCommands(commands, scope, allowGh);
   if (problem) throw new Error(problem);
 
   return { commands, explanation: parsed.explanation ?? "" };

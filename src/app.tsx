@@ -25,18 +25,23 @@ import {
   getActiveModelId,
   getActiveProvider,
   getAllowGh,
+  getCommandScope,
   getGuardDestructive,
   getHistory,
   getProviders,
   isConfigured,
   setActive,
   setAllowGh,
+  setCommandScope,
   setGuardDestructive,
   type HistoryEntry,
 } from "./services/config.js";
 import { modelShort } from "./config/knownModels.js";
 import { planCommands, type PriorTurn } from "./services/ai.js";
 import { ghUsable } from "./services/tools.js";
+import { runCommand } from "./services/session.js";
+import { shortenPath } from "./services/shell.js";
+import type { Scope } from "./utils/validate.js";
 import { planUndo } from "./services/undo.js";
 import type { Provider } from "./services/providers.js";
 import {
@@ -45,7 +50,7 @@ import {
   NO_REPO,
   type RepoState,
 } from "./services/repo.js";
-import { executeCommand } from "./utils/execute.js";
+import type { CommandResult } from "./utils/execute.js";
 
 export type StartMode = "console" | "model" | "history" | "settings";
 
@@ -79,6 +84,8 @@ export default function App({ startMode = "console" }: AppProps) {
   const [model, setModelState] = useState(getActiveModelId());
   const [guard, setGuard] = useState(getGuardDestructive());
   const [allowGh, setAllowGhState] = useState(getAllowGh());
+  const [scope, setScopeState] = useState<Scope>(getCommandScope());
+  const [cwd, setCwd] = useState(process.cwd());
   const [history, setHistory] = useState<HistoryEntry[]>(() => getHistory());
   const [repo, setRepo] = useState<RepoState>(NO_REPO);
   const [changed, setChanged] = useState<ReadonlySet<string>>(new Set());
@@ -91,18 +98,20 @@ export default function App({ startMode = "console" }: AppProps) {
 
   const provider = providers.find((p) => p.id === activeProviderId) ?? providers[0];
   const current = turns[turns.length - 1];
-  const phase: Phase = !repo.isRepo
-    ? "blocked"
-    : current?.status === "planning"
+  const phase: Phase =
+    current?.status === "planning"
       ? "thinking"
       : current?.status === "review"
         ? "review"
         : current?.status === "running"
           ? "running"
-          : "ready";
+          : scope === "git" && !repo.isRepo
+            ? "blocked"
+            : "ready";
 
   const refreshRepo = useCallback(() => {
     setRepo(readRepoState());
+    setCwd(process.cwd());
   }, []);
 
   useEffect(() => {
@@ -194,10 +203,11 @@ export default function App({ startMode = "console" }: AppProps) {
       ]);
       setDraft("");
 
-      if (!before.isRepo) {
+      if (scope === "git" && !before.isRepo) {
         patchTurn(id, {
           status: "failed",
-          error: "Not a git repository. Change into one and press ctrl+r.",
+          error:
+            "Not a git repository. Change into one, or allow terminal commands in settings.",
         });
         return;
       }
@@ -209,6 +219,7 @@ export default function App({ startMode = "console" }: AppProps) {
           request,
           repo: before,
           prior,
+          scope,
           allowGh: ghUsable(allowGh),
           onUpdate: (partial) => {
             patchTurn(id, {
@@ -230,7 +241,7 @@ export default function App({ startMode = "console" }: AppProps) {
         });
       }
     },
-    [patchTurn, provider, model, allowGh, priorContext],
+    [patchTurn, provider, model, scope, allowGh, priorContext],
   );
 
   const runCommands = useCallback(
@@ -243,12 +254,13 @@ export default function App({ startMode = "console" }: AppProps) {
 
       // Execution is synchronous per command; yield between each so the
       // spinner and the finished rows actually paint.
-      const results: ReturnType<typeof executeCommand>[] = [];
+      const results: CommandResult[] = [];
 
       const finish = (ok: boolean) => {
         const after = readRepoState();
         const delta = diffRepoState(before, after);
         setRepo(after);
+        setCwd(process.cwd());
         flash(delta.map((row) => row.key));
         patchTurn(id, {
           results: [...results],
@@ -269,7 +281,7 @@ export default function App({ startMode = "console" }: AppProps) {
 
       const step = (i: number) => {
         if (i >= commands.length) return finish(true);
-        const result = executeCommand(commands[i]!);
+        const result = runCommand(commands[i]!);
         results.push(result);
         patchTurn(id, { results: [...results] });
         if (!result.success) return finish(false);
@@ -412,6 +424,7 @@ export default function App({ startMode = "console" }: AppProps) {
         repo={repo}
         model={modelShort(model)}
         phase={phase}
+        cwd={shortenPath(cwd)}
       />
       <Rule width={size.width} />
 
@@ -424,6 +437,7 @@ export default function App({ startMode = "console" }: AppProps) {
               height={bodyHeight}
               isActive
               guardDestructive={guard}
+              scope={scope}
               onRun={runCommands}
               onCancel={cancelReview}
             />
@@ -465,7 +479,18 @@ export default function App({ startMode = "console" }: AppProps) {
               model={model}
               guardDestructive={guard}
               allowGh={allowGh}
+              scope={scope}
               notice={notice}
+              onToggleScope={() => {
+                const next: Scope = scope === "shell" ? "git" : "shell";
+                setCommandScope(next);
+                setScopeState(next);
+                say(
+                  next === "shell"
+                    ? "Any terminal command can now be proposed."
+                    : "Restricted to git and gh.",
+                );
+              }}
               onToggleGuard={() => {
                 const next = !guard;
                 setGuardDestructive(next);
@@ -512,8 +537,10 @@ export default function App({ startMode = "console" }: AppProps) {
         focused={promptFocused}
         placeholder={
           turns.length > 0
-            ? "describe another change, or correct the last one"
-            : "describe a change to this repo"
+            ? "describe the next step, or correct the last one"
+            : scope === "shell"
+              ? "describe what you want to happen here"
+              : "describe a change to this repo"
         }
         idleText={
           phase === "review"

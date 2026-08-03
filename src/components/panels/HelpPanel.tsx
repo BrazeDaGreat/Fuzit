@@ -88,7 +88,7 @@ export default function HelpPanel({ width, height }: HelpPanelProps) {
       {showNote && (
         <Box marginTop={1} flexDirection="column">
           <Text color={color.rule} wrap="truncate-end">
-            Run fuzit --help for the command-line flags.
+            Fuzit runs any terminal command by default; settings can pin it to git.
           </Text>
           <Text color={color.rule} wrap="truncate-end">
             No ctrl+digit: terminals cannot send ctrl+1, and ctrl+3 is Escape.
