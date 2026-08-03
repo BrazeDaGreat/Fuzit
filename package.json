@@ -7,14 +7,15 @@
   "homepage": "https://github.com/BrazeDaGreat/Fuzit",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BrazeDaGreat/Fuzit.git"
+    "url": "git+https://github.com/BrazeDaGreat/Fuzit.git"
   },
   "bugs": {
     "url": "https://github.com/BrazeDaGreat/Fuzit/issues"
   },
-  "bin": {
-    "fuzit": "./dist/cli.js"
+  "publishConfig": {
+    "access": "public"
   },
+  "bin": "./dist/cli.js",
   "files": [
     "dist"
   ],
